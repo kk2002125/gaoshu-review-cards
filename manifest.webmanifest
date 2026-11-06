@@ -1,0 +1,9 @@
+{
+  "name": "高数复习卡",
+  "short_name": "高数复习",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f7f5",
+  "theme_color": "#0f9f67"
+}
