@@ -28,20 +28,26 @@
       }
       nodes.forEach(function (node) {
         // Existing TeX is already authored and must retain its delimiters.
-        const parts = node.textContent.split(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g);
+        const parts = node.textContent.split(/(\\[(][\s\S]*?\\[)]|\\\[[\s\S]*?\\\])/g);
         const fragment = document.createDocumentFragment();
         parts.forEach(function (part) {
-          if (part.startsWith('\\(') || part.startsWith('\\[')) {
+          if (part.charCodeAt(0) === 92) {
             fragment.append(document.createTextNode(part));
             return;
           }
           // Chinese prose and punctuation delimit mathematical expressions.
-          const tokens = part.split(/([A-Za-z0-9α-ωΑ-Ω∫∑√∞πΔ][A-Za-z0-9α-ωΑ-Ω₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹₍₎∫∑√∞πΔ′″→+\-−–*/^_=<>≤≥≠().,|\[\]{} \t]*)/g);
+          part = part.replace(/([A-D])\.\s*/g, '$1．').replace(/ˣ/g, '^(x)');
+          const tokens = part.split(/([+\-−(\[]*[A-Za-z0-9α-ωΑ-Ω∫∑√∞πΔ][A-Za-z0-9α-ωΑ-Ωˣ₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹₍₎∫∑√∞πΔ′″→+\-−–*/^_=<>≤≥≠().,|\[\]{} \t]*)/g);
           tokens.forEach(function (token) {
             if (/[=^/∫∑√₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹₍→]/.test(token) && /[A-Za-z0-9∫∑√]/.test(token)) {
               const span = document.createElement('span');
               span.className = 'legacy-formula';
               span.textContent = '`' + expression(token.trim()) + '`';
+              fragment.append(span);
+            } else if (/^[0-9]+$/.test(token.trim())) {
+              const span = document.createElement('span');
+              span.className = 'legacy-formula';
+              span.textContent = '`' + token.trim() + '`';
               fragment.append(span);
             } else fragment.append(document.createTextNode(token));
           });
