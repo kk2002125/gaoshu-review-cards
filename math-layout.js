@@ -92,7 +92,7 @@
       .replace(/＝/g, "=")
       .replace(/＜/g, "<")
       .replace(/＞/g, ">")
-      .replace(/÷/g, "/")
+      .replace(/÷/g, " div ")
       .replace(/с/g, "c")
       .replace(/∂/g, "partial ")
       .replace(/∬/g, "int int ")
@@ -109,6 +109,8 @@
       .replace(/⊥/g, " _|_ ")
       .replace(/±/g, "+-")
       .replace(/[·⋅×]/g, "*");
+    // A derivative mark belongs to its variable, not to the following fraction.
+    s = s.replace(/([A-Za-z](?:_\([^)]*\))?'{1,3}(?:\([^)]*\))?)\s*\//g, "($1)/");
     // Differential numerators and denominators must remain a complete unit.
     s = s.replace(
       /partial\s*(?:\^\([^)]*\))?\s*[A-Za-z](?:_\([^)]*\))?\s*\/\s*(?:partial\s*[A-Za-z](?:\^\([^)]*\)|_\([^)]*\))?\s*)+/g,
@@ -179,7 +181,14 @@
             return;
           }
           // Chinese prose and punctuation delimit mathematical expressions.
-          part = part.replace(/([A-D])\.\s*/g, "$1．");
+          // Normalize full-width operators before finding expression boundaries.
+          part = part
+            .replace(/＋/g, "+")
+            .replace(/＝/g, "=")
+            .replace(/＜/g, "<")
+            .replace(/＞/g, ">")
+            .replace(/÷/g, " div ")
+            .replace(/([A-D])\.\s*/g, "$1．");
           const tokens = part.split(
             /([+\-−(\[]*[⁰¹²³⁴⁵⁶⁷⁸⁹A-Za-z0-9α-ωΑ-Ω∂∫∬∮∑√∛∞∇][A-Za-z0-9α-ωΑ-Ω₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿˣʸᶻᵗᵇᵉᵃʰ₊₋ₐₑₓᵧₙₜᵤ₍₎∂∫∬∮∑√∛∞∇⃗′″‴→+\-−–*/^_=<>≤≥≠∈∪∼≈≡±⊥·⋅×().,|\[\]{} \t]*)/g,
           );
