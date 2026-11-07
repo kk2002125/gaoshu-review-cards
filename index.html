@@ -141,12 +141,19 @@ button{cursor:pointer}
 </style>
 <link rel="stylesheet" href="./ai.css">
 <script src="./mastery-core.js"></script>
-<script>window.MathJax={tex:{inlineMath:[["\\(","\\)"]],displayMath:[["\\[","\\]"]]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script><style>
+<script src="./math-layout.js"></script>
+<script>window.MathJax={loader:{load:['input/asciimath']},asciimath:{delimiters:[['`','`']],displayStyle:true},tex:{inlineMath:[["\\(","\\)"]],displayMath:[["\\[","\\]"]]},startup:{pageReady:()=>{prepareMathLayout(document);return MathJax.startup.defaultPageReady();}}};</script>
+<script defer src="./vendor/mathjax/tex-mml-chtml.js"></script><style>
 .chapter-picker{margin:0 0 12px;padding:12px;border:1px solid #304039;border-radius:14px;background:#18231e}
 .chapter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(55px,1fr));gap:6px;max-height:155px;overflow:auto;padding:6px 2px;margin-top:6px}
 .chapter-number{display:grid;place-items:center;gap:0;min-height:44px;padding:4px;border:1px solid #40534a;border-radius:8px;background:#212c26;color:#d8e5de;line-height:1.15}
 .chapter-number small{font-size:10px}.chapter-number.weak{background:#492c2c}.chapter-number.hazy{background:#493a23}.chapter-number.familiar{background:#1d4836}.chapter-number[aria-current="true"]{outline:2px solid #77dcad;outline-offset:-2px}
 .chapter-practice .qtitle{font-size:clamp(17px,4vw,21px);overflow-wrap:anywhere}.chapter-note{font-size:13px;color:#a6c9b7;margin:5px 0}.chapter-practice{padding:15px}
+</style><style>
+.qtitle.math-content {font-family:"Songti SC","STSong","Noto Serif CJK SC",serif;font-weight:500;font-size:clamp(20px,2.2vw,28px);line-height:2.15;overflow-wrap:anywhere;}
+.math-content mjx-container {font-size:115% !important;max-width:100%;overflow-x:auto;overflow-y:hidden;padding:0.2em 0;vertical-align:middle;}
+.math-content math {font-family:"STIX Two Math","Cambria Math",serif;font-weight:normal;}
+.answer-banner .math-content,.analysis-block.math-content {line-height:2;}
 </style></head>
 <body>
 <div id="app"></div>
@@ -786,6 +793,7 @@ function renderPractice(){
   if(!studySessionStartedAt)startStudySession();
   updateQuestionCountdown();
   const timer=document.getElementById('qTimer');if(timer)timer.textContent=fmtSec(currentSessionSeconds());
+  prepareMathLayout(document);
   if(window.MathJax?.typesetPromise)window.MathJax.typesetPromise().catch(()=>{});
 }
 function openStatList(type){
@@ -800,6 +808,7 @@ function openStatList(type){
   dialog.querySelector('[data-all]').onclick=()=>{close();startPractice('selection',list.map(q=>q.id));};
   dialog.querySelectorAll('[data-one]').forEach(button=>button.onclick=()=>{close();startPractice('selection',[button.dataset.one]);});
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});document.body.append(dialog);dialog.showModal();
+  prepareMathLayout(document);
   if(window.MathJax?.typesetPromise)window.MathJax.typesetPromise([dialog]).catch(()=>{});
 }
 function wrongView(){
@@ -816,6 +825,7 @@ function wrongView(){
       </div>`).join("")}</div></section>`).join("")+`<button class="primary" style="width:100%;margin-top:14px" onclick="startPractice('wrong')">开始错题强化</button>`
       :`<div class="card empty">目前没有错题。连续两次答对一道错题后，它会自动移出错题本。</div>`}
   `,"wrong");
+  prepareMathLayout(document);
   if(window.MathJax?.typesetPromise)window.MathJax.typesetPromise().catch(()=>{});
 }
 function statsView(){
