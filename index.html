@@ -140,7 +140,7 @@ button{cursor:pointer}
 .cal-day.today{outline:2px solid var(--green)}
 </style>
 <link rel="stylesheet" href="./ai.css">
-<script src="./mastery-core.js"></script>
+<script src="./mastery-core.js?v=120"></script>
 <script src="./math-layout.js?v=4"></script>
 <script>window.MathJax={loader:{load:['input/asciimath']},asciimath:{delimiters:[['`','`']],displayStyle:true},tex:{inlineMath:[["\\(","\\)"]],displayMath:[["\\[","\\]"]]},startup:{pageReady:()=>{prepareMathLayout(document);return MathJax.startup.defaultPageReady();}}};</script>
 <script defer src="./vendor/mathjax/tex-mml-chtml.js"></script><style>
@@ -167,7 +167,8 @@ window.__EMBEDDED_QUESTIONS__=[{"id":"functions-001","chapter":"函数","q":"下
 const APP_VERSION = "gaoshu-review-cards-2.0.0";
 const STORE_KEY = "math_cards_progress_v2";
 const LEGACY_STORE_KEY = "math-cards.progress.v1";
-const REVIEW_DAYS=[1,3,7,14,30,60];
+const REVIEW_DAYS=QuizMastery.DAYS;
+const FINAL_REVIEW_STAGE=REVIEW_DAYS.length-1;
 const DAY_MS=24*60*60*1000;
 const app = document.getElementById("app");
 const toastEl = document.getElementById("toast");
@@ -205,7 +206,7 @@ function legacyState(){
     if(!r||!Number.isInteger(r.stage)||!Number.isSafeInteger(r.due))continue;
     const dueTs=r.due*DAY_MS-8*3600000;
     next.answers[id]={correct:r.stage>=0,ts:now};next.firstAnswers[id]=null;
-    next.memory[id]=r.stage<0?{phase:'learning',todayPasses:0,learningDay:todayKey(),cycleStart:null,stage:0,dueTs:null,lapses:1}:{phase:'review',todayPasses:2,learningDay:null,cycleStart:null,stage:Math.min(r.stage,REVIEW_DAYS.length-1),dueTs,reviewPasses:[],evidenceComplete:false,lapses:0};
+    next.memory[id]=r.stage<0?{phase:'learning',todayPasses:0,learningDay:todayKey(),cycleStart:null,stage:0,dueTs:null,lapses:1}:{phase:'review',todayPasses:2,learningDay:null,cycleStart:null,stage:Math.min(r.stage,FINAL_REVIEW_STAGE-1),dueTs,reviewPasses:[],evidenceComplete:false,lapses:0};
     if(r.stage<0)next.wrongIds.push(id);
   }
   return next;
@@ -282,7 +283,7 @@ function startOfDay(ts=Date.now()){return Date.parse(todayKey(ts)+'T00:00:00+08:
 function addDaysFrom(ts,days){return startOfDay(ts)+days*DAY_MS;}
 function formatDay(ts){
   if(!ts)return "—";
-  const d=new Date(ts);return `${d.getMonth()+1}月${d.getDate()}日`;
+  const [,month,day]=todayKey(ts).split("-");return `${Number(month)}月${Number(day)}日`;
 }
 function memoryFor(id){
   if(!state.memory || typeof state.memory!=="object")state.memory={};
@@ -302,6 +303,15 @@ function migrateMemory(){
       changed=true;
     }
   });
+  for(const [id,m] of Object.entries(state.memory)){
+    if(m?.phase!=="mastered" || m.stage!==FINAL_REVIEW_STAGE || !Number.isFinite(m.cycleStart))continue;
+    const proof=QuizMastery.evidence(m,state.history,id);
+    m.phase="review";
+    m.dueTs=addDaysFrom(m.cycleStart,REVIEW_DAYS[FINAL_REVIEW_STAGE]);
+    m.reviewPasses=proof.passes;
+    m.evidenceComplete=proof.known;
+    changed=true;
+  }
   if(changed)save();
 }
 function todayUniqueDone(){
@@ -430,7 +440,7 @@ function home(){
   app.innerHTML=shell(`
     <section class="hero">
       <h1>高数今天继续真正记住</h1>
-      <p>当天先通过两次间隔验证，再进入 1·3·7·14·30·60 天记忆曲线。</p>
+      <p>当天先通过两次间隔验证，再进入 ${REVIEW_DAYS.join("·")} 天记忆曲线。</p>
       <div class="hero-grid">
         <button class="hero-stat" onclick="openStatList('today')"><b>${todayDone}</b><span>今日已刷</span></button>
         <button class="hero-stat" onclick="openStatList('new')"><b id="today-new-learned">${newLearned.count}</b><span>今日新学</span></button>
@@ -453,7 +463,7 @@ function home(){
         <button class="primary" onclick="startDueReview()" ${due?"":"disabled"}>复习到期题 ${due?`(${due})`:""}</button>
         <button class="ghost" onclick="startLearningQueue()" ${learning?"":"disabled"}>继续学习中 ${learning?`(${learning})`:""}</button>
       </div>
-      <div class="memory-hint">规则：新题或忘记的题，当天必须“间隔答对 2 次”才算完成；任何一次答错都会清零并继续推回。进入长期复习后，在 1/3/7/14/30/60 天节点答对就向后推进；节点答错则重新学习，并从新的完成日期重新开始整条曲线。</div>
+      <div class="memory-hint">规则：新题或忘记的题，当天必须“间隔答对 2 次”才算完成；任何一次答错都会清零并继续推回。进入长期复习后，在 ${REVIEW_DAYS.join("/")} 天节点答对就向后推进；节点答错则重新学习，并从新的完成日期重新开始整条曲线。</div>
     </div>
 
     <div class="section-title"><h2>今日新题计划</h2><span>本章剩余新题 ${newCount}</span></div>
@@ -617,9 +627,9 @@ function advanceReview(q,m){
   m.evidenceComplete=proof.known;
   if(passedDay)m.reviewPasses.push({day:passedDay,ts:now,cycleStart:m.cycleStart});
   let next=m.stage+1;
-  // 若复习明显逾期，跳过已经过去的检查点，找到下一个仍在未来的节点。
-  while(next<REVIEW_DAYS.length && addDaysFrom(m.cycleStart,REVIEW_DAYS[next])<=now)next++;
-  if(next>=REVIEW_DAYS.length){
+  // 中间的逾期节点可跳过，但第 120 天必须实际作答通过。
+  while(next<FINAL_REVIEW_STAGE && addDaysFrom(m.cycleStart,REVIEW_DAYS[next])<=now)next++;
+  if(next>=REVIEW_DAYS.length || (next===FINAL_REVIEW_STAGE && !Number.isFinite(m.cycleStart))){
     m.phase="mastered";m.stage=REVIEW_DAYS.length;m.dueTs=null;
     practice.feedback="本轮记忆周期已结束 ✓ 实际通过的节点已记录；逾期跳过的节点不计为通过。";
   }else{
@@ -857,7 +867,7 @@ function statsView(){
       <div class="metric"><b>${answered}/${questions.length}</b><span>已接触题目</span></div>
       <div class="metric"><b>${mastered}</b><span>错题重新掌握</span></div>
     </div>
-    <div class="section-title"><h2>记忆曲线状态</h2><span>1·3·7·14·30·60</span></div>
+    <div class="section-title"><h2>记忆曲线状态</h2><span>${REVIEW_DAYS.join("·")}</span></div>
     <div class="memory-grid">
       <div class="memory-stat"><b>${due}</b><span>今日到期</span></div>
       <div class="memory-stat"><b>${learning}</b><span>学习中</span></div>
@@ -947,6 +957,6 @@ const autoBackup=window.GaoshuBackup?.start(now=>backupPayload(now,JSON.parse(lo
 init();
 </script>
 <script src="./ai-core.js"></script>
-<script src="./mastery-ui.js"></script>
+<script src="./mastery-ui.js?v=120"></script>
 </body>
 </html>
