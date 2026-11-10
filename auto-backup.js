@@ -5,6 +5,7 @@
   const prefix = '高数复习卡_自动备份_';
   const pattern = /^高数复习卡_自动备份_(\d{4,})_\d{4}-\d{2}-\d{2}\.json$/;
   const lockName = 'gaoshu-review-cards-auto-backup';
+  const backupInterval = 10;
 
   async function writeBackup(folder, payload, now = new Date()) {
     const previous = [];
@@ -89,7 +90,7 @@
         : '';
       note.textContent = !supported ? '当前浏览器支持手动导出。请用电脑版 Chrome 或 Edge 设置目录自动备份。'
         : status || (settings ? `已启用，保存到「${settings.parentName} / ${folderName}」。${last}`
-          : '尚未启用。选择目录后，有进度变化时自动保存。');
+          : '尚未启用。选择目录后会保存第一份备份。');
       if (status && settings) note.textContent += last;
     }
 
@@ -110,9 +111,12 @@
         }
         const now = new Date();
         const payload = getBackup(now);
-        if (!force && settings.lastBackupAt && settings.lastStateSavedAt === payload.state.lastSavedAt) return;
+        const progressCount = payload.state.backupProgressCount ?? 0;
+        const lastProgressCount = settings.lastProgressCount ?? 0;
+        const pendingCount = progressCount >= lastProgressCount ? progressCount - lastProgressCount : progressCount;
+        if (!force && pendingCount < backupInterval) return;
         const result = await writeBackup(settings.folder, payload, now);
-        settings = { ...settings, lastBackupAt: now.getTime(), lastStateSavedAt: payload.state.lastSavedAt };
+        settings = { ...settings, lastBackupAt: now.getTime(), lastProgressCount: progressCount };
         await accessSettings(settings);
         status = result.cleanupFailed ? '新备份已保存，旧文件暂时无法清理，下次备份将重试。' : '';
       });
@@ -143,7 +147,7 @@
     }
 
     if (supported) {
-      root.addEventListener('quiz-state-saved', () => {
+      root.addEventListener('quiz-progress-recorded', () => {
         timer ??= setTimeout(automatic, 3000);
       });
       document.addEventListener('visibilitychange', () => {
