@@ -157,7 +157,7 @@ button{cursor:pointer}
 .chapter-picker{margin:0 0 12px;padding:12px;border:1px solid #304039;border-radius:14px;background:#18231e}
 .chapter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(55px,1fr));gap:6px;max-height:155px;overflow:auto;padding:6px 2px;margin-top:6px}
 .chapter-number{display:grid;place-items:center;gap:0;min-height:44px;padding:4px;border:1px solid #40534a;border-radius:8px;background:#212c26;color:#d8e5de;line-height:1.15}
-.chapter-number small{font-size:10px}.chapter-number.weak{background:#492c2c}.chapter-number.hazy{background:#493a23}.chapter-number.familiar{background:#1d4836}.chapter-number[aria-current="true"]{outline:2px solid #77dcad;outline-offset:-2px}
+.chapter-number:disabled{opacity:.68;cursor:default}.chapter-number small{font-size:10px}.chapter-number.weak{background:#492c2c}.chapter-number.hazy{background:#493a23}.chapter-number.familiar{background:#1d4836}.chapter-number[aria-current="true"]{outline:2px solid #77dcad;outline-offset:-2px}
 .chapter-practice .qtitle{font-size:clamp(17px,4vw,21px);overflow-wrap:anywhere}.chapter-note{font-size:13px;color:#a6c9b7;margin:5px 0}.chapter-practice{padding:15px}
 </style><style>
 .qtitle.math-content {font-family:"Songti SC","STSong","Noto Serif CJK SC",serif;font-weight:500;font-size:clamp(20px,2.2vw,28px);line-height:2.15;overflow-wrap:anywhere;}
@@ -560,7 +560,8 @@ function startPractice(mode,limit=null,chapter=null){
     ids=ordered.map(q=>q.id);
   }
   practice={queue:ids,pos:0,currentAnswer:"",done:false,revealed:false,grading:false,correct:false,mode,plannedCount:ids.length,feedback:""};
-  if(mode==="chapter")practice.chapterIds=ids.slice();
+  if(mode==="chapter" || mode==="review")practice.chapterIds=ids.slice();
+  if(mode==="review")practice.reviewAttempts=new Map();
   stopStudySession();studySessionBase=(state.studySecondsByDay?.[todayKey()]||0);studySessionStartedAt=null;
   view="practice";renderPractice();
 }
@@ -761,10 +762,19 @@ function submitFill(){
   renderPractice(true);
 }
 function nextQuestion(){
-  
-  
-  if(practice.pos<practice.queue.length-1){
-    practice.pos++;practice.countdown=null;practice.done=false;practice.revealed=false;practice.grading=false;practice.correct=false;practice.currentAnswer="";
+  let next=practice.pos+1;
+  if(practice.reviewAttempts){
+    const remaining=new Map(practice.reviewAttempts);
+    const pending=[];
+    practice.queue.forEach((id,index)=>{
+      const count=remaining.get(id)||0;
+      if(count)remaining.set(id,count-1);
+      else pending.push(index);
+    });
+    next=pending.find(index=>index>practice.pos)??pending[0]??practice.queue.length;
+  }
+  if(next<practice.queue.length){
+    practice.pos=next;practice.countdown=null;practice.done=false;practice.revealed=false;practice.grading=false;practice.correct=false;practice.currentAnswer="";
     renderPractice();window.scrollTo({top:0,behavior:"smooth"});
   }else{
     stopStudySession();
@@ -789,6 +799,7 @@ function selfGrade(rating){
   practice.currentAnswer='自评：'+QuizMastery.RATINGS[rating].label;
   practice.correct=correct;practice.done=true;
   recordAnswer(q,practice.currentAnswer,correct,rating);
+  if(practice.reviewAttempts)practice.reviewAttempts.set(q.id,(practice.reviewAttempts.get(q.id)||0)+1);
   const feedback=practice.feedback;
   renderPractice();practice.grading=false;
   toast(feedback);
@@ -805,19 +816,21 @@ function selfRatingButtons(q){
   return `<div class="self-ratings" aria-label="本题自评">${buttons}</div><details class="rating-help"><summary>怎么选择？</summary><p>不会：无起手方法或关键方法错误。模糊：关键步骤需要提示。粗心失误：看答案前已有正确思路，仅计算或审题失误。独立做对：无提示完成，方法和答案均正确。</p><p>不会安排明天重学。模糊安排后天再测，粗心失误安排 5 天后再测，两档均保留已通过节点。</p>${extra?'<p>当前是本章额外练习，自评不会修改原复习计划。要更新计划，请从到期复习、学习中或错题入口练习。</p>':''}</details>`;
 }
 function selectChapterQuestion(index){
-  if(view!=="practice" || practice?.mode!=="chapter")return;
+  if(view!=="practice" || !practice?.chapterIds)return;
   const id=practice.chapterIds[index];
-  if(!id)return;
+  if(!id || practice.reviewAttempts?.has(id))return;
   practice.countdown = null;
   Object.assign(practice,{pos:practice.queue.indexOf(id),currentAnswer:"",done:false,revealed:false,grading:false,correct:false,feedback:""});
   renderPractice();
 }
 function chapterPicker(q){
+  const title=practice.mode==="review"?"到期复习选题":"本章选题";
   const buttons=practice.chapterIds.map((id,index)=>{
     const {key,label}=QuizMastery.describe(memoryFor(id),state.history,id);
-    return `<button type="button" class="chapter-number ${key}" onclick="selectChapterQuestion(${index})" aria-current="${id===q.id?'true':'false'}"><b>${index+1}</b><small>${label}</small></button>`;
+    const reviewed=practice.reviewAttempts?.has(id);
+    return `<button type="button" ${reviewed?"disabled":""} class="chapter-number ${key}" onclick="selectChapterQuestion(${index})" aria-current="${id===q.id?'true':'false'}"><b>${index+1}</b><small>${reviewed?"已作答":label}</small></button>`;
   }).join("");
-  return `<section class="chapter-picker" aria-label="本章选题"><strong>本章选题</strong><div id="chapterGrid" class="chapter-grid">${buttons}</div></section>`;
+  return `<section class="chapter-picker" aria-label="${title}"><strong>${title}</strong><div id="chapterGrid" class="chapter-grid">${buttons}</div></section>`;
 }
 const QUESTION_TIME_MS = 180000;
 function updateQuestionCountdown(){
@@ -838,12 +851,12 @@ function renderPractice(){
   const chapterScroll = document.getElementById("chapterGrid")?.scrollTop ?? 0;
   const q=getQ();if(!q){home();return;}const done=practice.done,revealed=practice.revealed||done;
   if(!revealed && !practice.countdown)practice.countdown={deadline:Date.now()+QUESTION_TIME_MS,continued:false};
-  const progress=Math.round((practice.pos+1)/practice.queue.length*100);
+  const progress=Math.round(practice.reviewAttempts ? practice.reviewAttempts.size/practice.chapterIds.length*100 : (practice.pos+1)/practice.queue.length*100);
   app.innerHTML=shell(`
     ${window.QuizMasteryUI?QuizMasteryUI.forecastWidget(true):''}
-    ${practice.mode==="chapter"?chapterPicker(q):""}
+    ${practice.chapterIds?chapterPicker(q):""}
     <div class="card ${practice.mode==="chapter"?"chapter-practice":""}">
-      <div class="qhead"><span>${q.chapter} · 翻卡自评${practice.mode==='daily'?' · 今日新题':practice.mode==='review'?' · 到期复习':practice.mode==='learning'?' · 学习中':practice.mode==='chapter'?' · 本章练习':''}</span><span><span class="study-timer">⏱ <span id="qTimer">00:00</span></span> ${practice.mode==="chapter"?practice.chapterIds.indexOf(q.id)+1:practice.pos+1}/${practice.mode==="chapter"?practice.chapterIds.length:practice.queue.length}</span></div>
+      <div class="qhead"><span>${q.chapter} · 翻卡自评${practice.mode==='daily'?' · 今日新题':practice.mode==='review'?' · 到期复习':practice.mode==='learning'?' · 学习中':practice.mode==='chapter'?' · 本章练习':''}</span><span><span class="study-timer">⏱ <span id="qTimer">00:00</span></span> ${practice.chapterIds?practice.chapterIds.indexOf(q.id)+1:practice.pos+1}/${practice.chapterIds?practice.chapterIds.length:practice.queue.length}</span></div>
       <div class="progress" style="margin-bottom:15px"><div style="width:${progress}%"></div></div>
       ${practice.mode==="chapter"?`<p class="chapter-note">${['review','mastered'].includes(memoryFor(q.id)?.phase)?'额外练习 · 保留原复习计划':'首次或学习中 · 按正常规则加入记忆计划'}</p>`:""}
       ${!revealed?`<p id="questionCountdown" class="chapter-note">本题倒计时 03:00</p>`:''}
