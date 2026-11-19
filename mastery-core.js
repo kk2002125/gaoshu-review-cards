@@ -5,6 +5,27 @@ const DAYS=[...PREVIOUS_DAYS,120],LABELS={unlearned:'未学习',weak:'不熟',ha
 const DAY_MS=86400000,CHINA_OFFSET=8*3600000;
 function startOfDay(ts){return Math.floor((ts+CHINA_OFFSET)/DAY_MS)*DAY_MS-CHINA_OFFSET;}
 function dueAt(start,days){return startOfDay(start)+days*DAY_MS;}
+const RATINGS={
+ again:{label:'不会',hint:'无思路或方法错误'},
+ hazy:{label:'模糊',hint:'关键步骤需要提示'},
+ careless:{label:'粗心失误',hint:'思路正确，计算或审题失误'},
+ good:{label:'独立做对',hint:'无提示完成，方法和答案正确'}
+};
+function hasRecheck(m){return Number.isFinite(m?.recheckDueTs)&&m.recheckDueTs>0;}
+function nextDue(m){return hasRecheck(m)?m.recheckDueTs:m?.phase==='review'&&Number.isFinite(m.dueTs)&&m.dueTs>0?m.dueTs:null;}
+function recheckPlan(m,rating,now=Date.now()){
+ if(!['hazy','careless'].includes(rating))throw new Error('Invalid recheck rating');
+ const mature=validPasses(m).some(p=>p.day>=14);
+ // Repeated slips need a closer check, not another long postponement.
+ const repeated=rating==='careless'&&m.lastRating==='careless';
+ const days=rating==='hazy'?(mature?3:1):(repeated?1:mature?7:3);
+ let dueTs=dueAt(now,days);
+ // A failed due attempt is rescheduled; an upcoming checkpoint stays earlier.
+ for(const ts of [m.phase==='review'?m.dueTs:null,m.recheckDueTs]){
+  if(Number.isFinite(ts)&&ts>now)dueTs=Math.min(dueTs,ts);
+ }
+ return {dueTs,days};
+}
 function validPasses(m){return (m.reviewPasses||[]).filter(p=>p&&DAYS.includes(p.day)&&Number.isFinite(p.ts)&&p.ts>=dueAt(m.cycleStart,p.day)&&p.cycleStart===m.cycleStart);}
 // Old scheduling can skip overdue checkpoints; stage alone is never pass evidence.
 function evidence(m,history=[],id){
@@ -31,8 +52,8 @@ function evidence(m,history=[],id){
 function describe(m,history=[],id,now=Date.now()){
  if(!m)return {key:'unlearned',label:LABELS.unlearned,passedDay:0,days:[],known:true,due:false,overdue:false,nextDay:null,dueTs:null};
  const e=evidence(m,history,id),days=[...new Set(e.passes.map(p=>p.day))].sort((a,b)=>a-b),passedDay=m.phase==='learning'?0:Math.max(0,...days);
- const key=passedDay>=14?'familiar':passedDay>=3?'hazy':'weak',validDue=m.phase==='review'&&Number.isFinite(m.dueTs)&&m.dueTs>0;
- return {key,label:LABELS[key],passedDay,days,known:e.known,source:e.source,due:!!(validDue&&m.dueTs<=now),overdue:!!(validDue&&m.dueTs<startOfDay(now)),nextDay:m.phase==='review'&&Number.isInteger(m.stage)?DAYS[m.stage]??null:null,dueTs:validDue?m.dueTs:null,phase:m.phase};
+ const key=passedDay>=14?'familiar':passedDay>=3?'hazy':'weak',dueTs=nextDue(m),recheck=hasRecheck(m);
+ return {key,label:LABELS[key],passedDay,days,known:e.known,source:e.source,due:!!(dueTs&&dueTs<=now),overdue:!!(dueTs&&dueTs<startOfDay(now)),nextDay:!recheck&&m.phase==='review'&&Number.isInteger(m.stage)?DAYS[m.stage]??null:null,dueTs,phase:m.phase,recheck,lastRating:m.lastRating||null};
 }
 function summarize(questions,memory={},history=[],now=Date.now()){
  const counts={unlearned:0,weak:0,hazy:0,familiar:0,due:0,unknown:0};
@@ -42,9 +63,9 @@ function summarize(questions,memory={},history=[],now=Date.now()){
 }
 function forecast(questions,memory={},now=Date.now()){
  const tomorrow=startOfDay(now)+DAY_MS,end=tomorrow+DAY_MS,seen=new Set(),tomorrowIds=[],dueIds=[];
- for(const q of questions){const id=String(q.id);if(seen.has(id))continue;seen.add(id);const m=memory?.[q.id];if(!m||m.phase!=='review'||!Number.isFinite(m.dueTs)||m.dueTs<=0||m.stage>=DAYS.length)continue;
- if(m.dueTs<=now)dueIds.push(q.id);if(m.dueTs>=tomorrow&&m.dueTs<end)tomorrowIds.push(q.id);}
+ for(const q of questions){const id=String(q.id);if(seen.has(id))continue;seen.add(id);const m=memory?.[q.id],dueTs=nextDue(m);if(!dueTs)continue;
+ if(dueTs<=now)dueIds.push(q.id);if(dueTs>=tomorrow&&dueTs<end)tomorrowIds.push(q.id);}
  return {tomorrowIds,dueIds,tomorrowCount:tomorrowIds.length,dueCount:dueIds.length,tomorrowStart:tomorrow,tomorrowEnd:end};
 }
-const api={forecast,DAYS,LABELS,evidence,describe,summarize,dueAt};root.QuizMastery=api;
+const api={forecast,DAYS,LABELS,RATINGS,hasRecheck,nextDue,recheckPlan,evidence,describe,summarize,dueAt};root.QuizMastery=api;
 })(typeof window==='undefined'?globalThis:window);
