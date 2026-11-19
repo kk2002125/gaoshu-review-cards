@@ -150,7 +150,7 @@ button{cursor:pointer}
 .cal-day.today{outline:2px solid var(--green)}
 </style>
 <link rel="stylesheet" href="./ai.css">
-<script src="./mastery-core.js?v=ratings1"></script>
+<script src="./mastery-core.js?v=ratings2"></script>
 <script src="./math-layout.js?v=4"></script>
 <script>window.MathJax={loader:{load:['input/asciimath']},asciimath:{delimiters:[['`','`']],displayStyle:true},tex:{inlineMath:[["\\(","\\)"]],displayMath:[["\\[","\\]"]]},startup:{pageReady:()=>{prepareMathLayout(document);return MathJax.startup.defaultPageReady();}}};</script>
 <script defer src="./vendor/mathjax/tex-mml-chtml.js"></script><style>
@@ -474,7 +474,7 @@ function home(){
         <button class="primary" onclick="startDueReview()" ${due?"":"disabled"}>复习到期题 ${due?`(${due})`:""}</button>
         <button class="ghost" onclick="startLearningQueue()" ${learning?"":"disabled"}>继续学习中 ${learning?`(${learning})`:""}</button>
       </div>
-      <div class="memory-hint">规则：新题或忘记的题，当天必须“间隔答对 2 次”才算完成；任何一次答错都会清零并继续推回。进入长期复习后，在 ${REVIEW_DAYS.join("/")} 天节点答对就向后推进；节点答错则重新学习，并从新的完成日期重新开始整条曲线。</div>
+      <div class="memory-hint">规则：新题或忘记的题，当天必须“间隔答对 2 次”才算完成；选择“不会”会清零并安排明天重学。进入长期复习后，在 ${REVIEW_DAYS.join("/")} 天节点答对就向后推进；选择“不会”则重新学习，并从新的完成日期重新开始整条曲线。</div>
     </div>
 
     <div class="section-title"><h2>今日新题计划</h2><span>本章剩余新题 ${newCount}</span></div>
@@ -630,8 +630,7 @@ function resetToLearning(q,m){
   m.dueTs=null;
   m.lapses=(m.lapses||0)+1;
   if(!state.wrongIds.includes(q.id))state.wrongIds.push(q.id);
-  enqueueAgain(q.id,4);
-  practice.feedback="这次忘记了：记忆曲线已重置。题目会再次推回；今天重新完成 2 次间隔答对后，再从第 1 天开始。";
+
 }
 function advanceReview(q,m){
   const now=Date.now();
@@ -665,7 +664,7 @@ function recordAnswer(q,value,correct,rating=correct?"good":"again"){
     const proof=QuizMastery.evidence(m,state.history,q.id);
     m.reviewPasses=proof.passes;m.evidenceComplete=proof.known;
   }
-  const recheck=['hazy','careless'].includes(rating)?QuizMastery.recheckPlan(m,rating):null;
+  const recheck=correct?null:QuizMastery.recheckPlan(rating);
   QuizNewLearned.record(state,q.id);
   const dl=ensureDayData();dl.answers++;if(correct)dl.correct++;else dl.wrong++;
   state.stats.total++;
@@ -676,12 +675,13 @@ function recordAnswer(q,value,correct,rating=correct?"good":"again"){
   state.history=state.history.slice(0,500);
   m.lastRating=rating;
   if(recheck){
+    if(rating==='again')resetToLearning(q,m);
     m.recheckDueTs=recheck.dueTs;m.recheckRating=rating;
     if(m.phase==='learning'){m.todayPasses=0;m.learningDay=todayKey();}
     if(!state.wrongIds.includes(q.id))state.wrongIds.push(q.id);
     // Earlier same-session failures may already have queued another attempt.
     practice.queue=practice.queue.filter((id,i)=>i<=practice.pos||id!==q.id);
-    practice.feedback=`${QuizMastery.RATINGS[rating].label}：${formatDay(recheck.dueTs)} 补充验证；已通过节点保留，本次不算独立答对。`;
+    practice.feedback=rating==='again'? `不会：${formatDay(recheck.dueTs)} 重新学习。` : `${QuizMastery.RATINGS[rating].label}：${formatDay(recheck.dueTs)} 补充验证；已通过节点保留，本次不算独立答对。`;
     state.lastQuestionId=q.id;save(true);return;
   }
   if(correct && QuizMastery.hasRecheck(m) && m.recheckDueTs>Date.now()){
@@ -692,27 +692,18 @@ function recordAnswer(q,value,correct,rating=correct?"good":"again"){
   clearRecheck(m);
   if(m?.phase==="review"){
     const isDue=!!(m.dueTs && m.dueTs<=Date.now());
-    if(!correct){
-      resetToLearning(q,m);
-    }else if(isDue){
+    if(isDue){
       advanceReview(q,m);
     }else{
       practice.feedback=`回答正确。正式复习日仍是 ${formatDay(m.dueTs)}，本次额外练习不会提前推进记忆曲线。`;
     }
   }else if(m?.phase==="mastered"){
-    if(!correct)resetToLearning(q,m);
-    else practice.feedback="回答正确 ✓ 这道题已完成长期记忆周期。";
+    practice.feedback="回答正确 ✓ 这道题已完成长期记忆周期。";
   }else{
     m=m||ensureLearningMemory(q.id);
     if(m.learningDay!==todayKey()){
       m.learningDay=todayKey();m.todayPasses=0;
     }
-    if(!correct){
-      m.todayPasses=0;
-      if(!state.wrongIds.includes(q.id))state.wrongIds.push(q.id);
-      enqueueAgain(q.id,4);
-      practice.feedback="回答错误：今日掌握计数已清零，稍后会再次出现。";
-    }else{
       m.phase="learning";
       m.todayPasses=(m.todayPasses||0)+1;
       if(m.todayPasses>=2){
@@ -721,7 +712,6 @@ function recordAnswer(q,value,correct,rating=correct?"good":"again"){
         enqueueAgain(q.id,8);
         practice.feedback="第一次间隔验证通过 ✓ 还需要再答对 1 次才算今日完成，稍后会再次出现。";
       }
-    }
   }
   if(rechecked && m.phase!=='learning' && state.wrongIds.includes(q.id)){
     state.wrongIds=state.wrongIds.filter(id=>id!==q.id);
@@ -806,15 +796,13 @@ function selfGrade(rating){
   setTimeout(()=>{if(view==="practice"&&practice===graded&&practice.done&&getQ()?.id===q.id)nextQuestion();},260);
 }
 function selfRatingButtons(q){
-  const original=memoryFor(q.id)||{phase:'learning'};
-  const m={...original,reviewPasses:QuizMastery.evidence(original,state.history,q.id).passes};
-  const extra=practice.mode==='chapter'&&['review','mastered'].includes(m.phase);
+  const extra=practice.mode==='chapter'&&['review','mastered'].includes(memoryFor(q.id)?.phase);
   const buttons=Object.entries(QuizMastery.RATINGS).map(([key,item])=>{
-    let hint=key==='again'?'当天重学':key==='good'?'按正常计划复习':formatDay(QuizMastery.recheckPlan(m,key).dueTs)+'再测';
+    let hint=key==='good'?'按正常计划复习':formatDay(QuizMastery.recheckPlan(key).dueTs)+(key==='again'?'重学':'再测');
     if(extra)hint=item.hint;
     return `<button type="button" class="rating-${key}" data-rating="${key}" onclick="selfGrade('${key}')" title="${item.hint}">${item.label}<small>${hint}</small></button>`;
   }).join('');
-  return `<div class="self-ratings" aria-label="本题自评">${buttons}</div><details class="rating-help"><summary>怎么选择？</summary><p>不会：无起手方法或关键方法错误。模糊：关键步骤需要提示。粗心失误：看答案前已有正确思路，仅计算或审题失误。独立做对：无提示完成，方法和答案均正确。</p><p>模糊与粗心不计入独立答对，保留已通过节点；连续粗心会缩短验证间隔。按钮日期按当前进度计算，正式复习更早时优先保留更早日期。</p>${extra?'<p>当前是本章额外练习，自评不会修改原复习计划。要更新计划，请从到期复习、学习中或错题入口练习。</p>':''}</details>`;
+  return `<div class="self-ratings" aria-label="本题自评">${buttons}</div><details class="rating-help"><summary>怎么选择？</summary><p>不会：无起手方法或关键方法错误。模糊：关键步骤需要提示。粗心失误：看答案前已有正确思路，仅计算或审题失误。独立做对：无提示完成，方法和答案均正确。</p><p>不会安排明天重学。模糊安排后天再测，粗心失误安排 5 天后再测，两档均保留已通过节点。</p>${extra?'<p>当前是本章额外练习，自评不会修改原复习计划。要更新计划，请从到期复习、学习中或错题入口练习。</p>':''}</details>`;
 }
 function selectChapterQuestion(index){
   if(view!=="practice" || practice?.mode!=="chapter")return;
@@ -940,7 +928,7 @@ function statsView(){
       <div class="memory-stat"><b>${learning}</b><span>学习中</span></div>
       <div class="memory-stat"><b>${active}</b><span>曲线进行中</span></div>
     </div>
-    <div class="card" style="margin-top:10px"><b>长期周期完成：${mature} 题</b><p class="mini">复习节点答错会重新进入学习阶段，并从新的完成日期重新开始第 1 天。</p></div>
+    <div class="card" style="margin-top:10px"><b>长期周期完成：${mature} 题</b><p class="mini">选择“不会”会重新进入学习阶段，并从新的完成日期重新开始第 1 天。</p></div>
     <div class="section-title"><h2>知识点表现</h2><span>按当前记录</span></div>
     <div class="list">
       ${tags.length?tags.map(([tag,v])=>{
@@ -1024,6 +1012,6 @@ const autoBackup=window.GaoshuBackup?.start(now=>backupPayload(now,JSON.parse(lo
 init();
 </script>
 <script src="./ai-core.js"></script>
-<script src="./mastery-ui.js?v=ratings1"></script>
+<script src="./mastery-ui.js?v=ratings2"></script>
 </body>
 </html>

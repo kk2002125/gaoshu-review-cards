@@ -13,18 +13,9 @@ const RATINGS={
 };
 function hasRecheck(m){return Number.isFinite(m?.recheckDueTs)&&m.recheckDueTs>0;}
 function nextDue(m){return hasRecheck(m)?m.recheckDueTs:m?.phase==='review'&&Number.isFinite(m.dueTs)&&m.dueTs>0?m.dueTs:null;}
-function recheckPlan(m,rating,now=Date.now()){
- if(!['hazy','careless'].includes(rating))throw new Error('Invalid recheck rating');
- const mature=validPasses(m).some(p=>p.day>=14);
- // Repeated slips need a closer check, not another long postponement.
- const repeated=rating==='careless'&&m.lastRating==='careless';
- const days=rating==='hazy'?(mature?3:1):(repeated?1:mature?7:3);
- let dueTs=dueAt(now,days);
- // A failed due attempt is rescheduled; an upcoming checkpoint stays earlier.
- for(const ts of [m.phase==='review'?m.dueTs:null,m.recheckDueTs]){
-  if(Number.isFinite(ts)&&ts>now)dueTs=Math.min(dueTs,ts);
- }
- return {dueTs,days};
+function recheckPlan(rating,now=Date.now()){
+ const days={again:1,hazy:2,careless:5}[rating];
+ return {dueTs:dueAt(now,days),days};
 }
 function validPasses(m){return (m.reviewPasses||[]).filter(p=>p&&DAYS.includes(p.day)&&Number.isFinite(p.ts)&&p.ts>=dueAt(m.cycleStart,p.day)&&p.cycleStart===m.cycleStart);}
 // Old scheduling can skip overdue checkpoints; stage alone is never pass evidence.
