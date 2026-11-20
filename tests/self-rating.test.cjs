@@ -32,13 +32,13 @@ test('one successful answer learns a new item and same-day repeats do not advanc
  const a=app();grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),0);
  assert.equal(a.run('state.memory.q1.phase'),'review');
  grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),0);
- a.time(NOW+DAY);grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),1);
- assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),2)'));
+ a.time(NOW+DAY);grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),2);
+ assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),6)'));
 });
 test('overdue success moves exactly one stage from actual answer date',()=>{
  const a=app();mature(a,{stage:2,daysAgo:60});grade(a,'good');
- assert.equal(a.run('state.memory.q1.stage'),3);
- assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),7)'));
+ assert.equal(a.run('state.memory.q1.stage'),4);
+ assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),23)'));
 });
 test('early practice advances but never twice on the same day',()=>{
  const a=app();mature(a);a.run('state.memory.q1.dueTs=Date.now()+30*86400000');grade(a,'good');
@@ -48,4 +48,13 @@ test('failure schedules tomorrow and old delayed records survive until answering
  const a=app();mature(a);const before=a.json('state.memory');a.run('migrateMemory()');assert.deepEqual(a.json('state.memory'),before);
  grade(a,'again');assert.equal(a.run('state.memory.q1.recheckDueTs'),a.run('QuizMastery.dueAt(Date.now(),1)'));
  a.time(NOW+DAY);grade(a,'good');assert.equal(a.run('state.memory.q1.phase'),'review');
+});
+
+test('legacy stages preserve their due dates and join the next active node',()=>{
+ for(const [stage,next,days] of [[1,2,6],[3,4,23],[4,5,30],[5,6,60]]){
+  const a=app();mature(a,{stage});const old=a.run('state.memory.q1.dueTs');
+  a.run('migrateMemory()');assert.equal(a.run('state.memory.q1.dueTs'),old);
+  grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),next);
+  assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),'+days+')'));
+ }
 });
