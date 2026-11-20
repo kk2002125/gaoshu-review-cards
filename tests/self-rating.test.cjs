@@ -28,12 +28,15 @@ function mature(a,{stage=4,daysAgo=30}={}){
 function grade(a,r){a.run(`recordAnswer(questions[0],'自评',${r==='good'},'${r}')`);}
 
 
-test('one successful answer learns a new item and same-day repeats do not advance',()=>{
- const a=app();grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),0);
- assert.equal(a.run('state.memory.q1.phase'),'review');
- grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),0);
- a.time(NOW+DAY);grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),2);
- assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),6)'));
+
+test('new learning starts with a seven-day review and continues to day thirty',()=>{
+ const a=app();grade(a,'good');
+ assert.equal(a.run('state.memory.q1.stage'),2);
+ assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),7)'));
+ grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),2);
+ a.time(NOW+7*DAY);grade(a,'good');
+ assert.equal(a.run('state.memory.q1.stage'),4);
+ assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),23)'));
 });
 test('overdue success moves exactly one stage from actual answer date',()=>{
  const a=app();mature(a,{stage:2,daysAgo:60});grade(a,'good');
@@ -51,7 +54,7 @@ test('failure schedules tomorrow and old delayed records survive until answering
 });
 
 test('legacy stages preserve their due dates and join the next active node',()=>{
- for(const [stage,next,days] of [[1,2,6],[3,4,23],[4,5,30],[5,6,60]]){
+ for(const [stage,next,days] of [[1,2,7],[3,4,23],[4,5,30],[5,6,60]]){
   const a=app();mature(a,{stage});const old=a.run('state.memory.q1.dueTs');
   a.run('migrateMemory()');assert.equal(a.run('state.memory.q1.dueTs'),old);
   grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),next);
