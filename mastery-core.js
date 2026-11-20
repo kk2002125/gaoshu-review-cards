@@ -17,7 +17,7 @@ function recheckPlan(rating,now=Date.now()){
  const days={again:1,hazy:2,careless:5}[rating];
  return {dueTs:dueAt(now,days),days};
 }
-function validPasses(m){return (m.reviewPasses||[]).filter(p=>p&&DAYS.includes(p.day)&&Number.isFinite(p.ts)&&p.ts>=dueAt(m.cycleStart,p.day)&&p.cycleStart===m.cycleStart);}
+function validPasses(m){return (m.reviewPasses||[]).filter(p=>p&&DAYS.includes(p.day)&&Number.isFinite(p.ts)&&(p.rolling===true||p.ts>=dueAt(m.cycleStart,p.day))&&p.cycleStart===m.cycleStart);}
 // Old scheduling can skip overdue checkpoints; stage alone is never pass evidence.
 function evidence(m,history=[],id){
  if(!m||m.phase==='learning')return {passes:[],known:true,source:'current'};

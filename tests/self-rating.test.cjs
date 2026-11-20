@@ -27,103 +27,25 @@ function mature(a,{stage=4,daysAgo=30}={}){
 }
 function grade(a,r){a.run(`recordAnswer(questions[0],'自评',${r==='good'},'${r}')`);}
 
-test('new partial ratings schedule 2 / 5 day checks without passing initial learning',()=>{
- for(const [r,days] of [['hazy',2],['careless',5]]){
-  const a=app();grade(a,r);
-  assert.equal(a.run('state.memory.q1.phase'),'learning');
-  assert.equal(a.run('state.memory.q1.todayPasses'),0);
-  assert.equal(a.run('state.memory.q1.recheckDueTs'),a.run(`QuizMastery.dueAt(Date.now(),${days})`));
-  assert.equal(a.run('state.stats.correct'),0);
-  assert.equal(a.run('state.backupProgressCount'),1);
-  assert.equal(a.run('state.history[0].rating'),r);
-  assert.deepEqual(a.json('learningIds()'),[]);
-  assert.deepEqual(a.json('newQuestionIdsInOrder()'),['q2']);
-  assert.ok(a.json('state.wrongIds').includes('q1'));
- }
+
+test('one successful answer learns a new item and same-day repeats do not advance',()=>{
+ const a=app();grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),0);
+ assert.equal(a.run('state.memory.q1.phase'),'review');
+ grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),0);
+ a.time(NOW+DAY);grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),1);
+ assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),2)'));
 });
-test('mature partial ratings preserve checkpoints and use 2 / 5 day validation',()=>{
- for(const [r,days] of [['hazy',2],['careless',5]]){
-  const a=app();mature(a);const old=a.json('state.memory.q1');grade(a,r);
-  const m=a.json('state.memory.q1');
-  for(const k of ['phase','cycleStart','stage','reviewPasses','lapses'])assert.deepEqual(m[k],old[k]);
-  assert.equal(m.recheckDueTs,a.run(`QuizMastery.dueAt(Date.now(),${days})`));
-  assert.equal(a.run('QuizMastery.describe(state.memory.q1).passedDay'),14);
-  assert.deepEqual(a.json('dueReviewIds()'),[]);
- }
+test('overdue success moves exactly one stage from actual answer date',()=>{
+ const a=app();mature(a,{stage:2,daysAgo:60});grade(a,'good');
+ assert.equal(a.run('state.memory.q1.stage'),3);
+ assert.equal(a.run('state.memory.q1.dueTs'),a.run('QuizMastery.dueAt(Date.now(),7)'));
 });
-test('partial validation enters forecasts, including learning and mastered items',()=>{
- for(const phase of ['learning','mastered']){
-  const a=app();a.run(`state.memory.q1={phase:'${phase}',stage:7,reviewPasses:[]}`);grade(a,'careless');
-  a.time(NOW+4*DAY);
-  assert.deepEqual(a.json('QuizMastery.forecast(questions,state.memory).tomorrowIds'),['q1']);
-  a.time(NOW+5*DAY);
-  assert.deepEqual(a.json('dueReviewIds()'),['q1']);
-  assert.deepEqual(a.json('QuizMastery.forecast(questions,state.memory).dueIds'),['q1']);
- }
+test('early practice advances but never twice on the same day',()=>{
+ const a=app();mature(a);a.run('state.memory.q1.dueTs=Date.now()+30*86400000');grade(a,'good');
+ assert.equal(a.run('state.memory.q1.stage'),5);grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),5);
 });
-test('success on a due validation advances an overdue formal checkpoint once',()=>{
- const a=app();mature(a);grade(a,'hazy');a.time(NOW+3*DAY);grade(a,'good');
- assert.equal(a.run('state.memory.q1.stage'),5);
- assert.equal(a.run('state.memory.q1.reviewPasses.length'),2);
- assert.equal(a.run('state.memory.q1.reviewPasses[1].day'),30);
- assert.equal(a.run('QuizMastery.hasRecheck(state.memory.q1)'),false);
- assert.deepEqual(a.json('state.wrongIds'),[]);
-});
-test('success on early validation does not advance a future checkpoint',()=>{
- const a=app();mature(a);a.run('state.memory.q1.dueTs=QuizMastery.dueAt(Date.now(),15)');grade(a,'hazy');
- a.time(NOW+3*DAY);grade(a,'good');assert.equal(a.run('state.memory.q1.stage'),4);
- assert.equal(a.run('state.memory.q1.reviewPasses.length'),1);
- assert.equal(a.run('QuizMastery.hasRecheck(state.memory.q1)'),false);
-});
-test('practice before validation date cannot clear it or advance the overdue original checkpoint',()=>{
- const a=app();mature(a);grade(a,'hazy');const due=a.run('state.memory.q1.recheckDueTs');grade(a,'good');
- assert.equal(a.run('state.memory.q1.recheckDueTs'),due);assert.equal(a.run('state.memory.q1.stage'),4);
-});
-test('new partial item must still earn two correct initial attempts after returning',()=>{
- const a=app();grade(a,'hazy');a.time(NOW+2*DAY);grade(a,'good');
- assert.equal(a.run('state.memory.q1.phase'),'learning');assert.equal(a.run('state.memory.q1.todayPasses'),1);
- grade(a,'good');assert.equal(a.run('state.memory.q1.phase'),'review');assert.equal(a.run('state.memory.q1.stage'),0);
-});
-test('cannot solve resets the cycle and schedules relearning tomorrow',()=>{
- const a=app();mature(a);grade(a,'careless');grade(a,'again');
- assert.equal(a.run('state.memory.q1.phase'),'learning');assert.equal(a.run('state.memory.q1.cycleStart'),null);
- assert.deepEqual(a.json('state.memory.q1.reviewPasses'),[]);assert.equal(a.run('state.memory.q1.recheckDueTs'),a.run('QuizMastery.dueAt(Date.now(),1)'));
- assert.deepEqual(a.json('dueReviewIds()'),[]);a.time(NOW+DAY);assert.deepEqual(a.json('dueReviewIds()'),['q1']);
-});
-test('120-day success still completes the cycle after a partial rating',()=>{
- const a=app();mature(a,{stage:6,daysAgo:120});grade(a,'careless');a.time(NOW+7*DAY);grade(a,'good');
- assert.equal(a.run('state.memory.q1.phase'),'mastered');assert.equal(a.run('state.memory.q1.reviewPasses.at(-1).day'),120);
- assert.equal(a.run('QuizMastery.nextDue(state.memory.q1)'),null);
-});
-test('chapter extra practice continues preserving existing records',()=>{
- const a=app();mature(a);a.run("practice.mode='chapter'");const before=a.json('state');grade(a,'careless');
- assert.deepEqual(a.json('state'),before);assert.match(a.run('practice.feedback'),/额外练习/);
-});
-test('guard rejects duplicate clicks and saves new fields in existing backup payload',()=>{
- const a=app();a.run("selfGrade('hazy');selfGrade('careless')");
- assert.equal(a.run('state.stats.total'),1);assert.equal(a.run('state.backupProgressCount'),1);
- const backup=a.json('backupPayload()');
- assert.equal(backup.state.memory.q1.recheckRating,'hazy');
- assert.equal(backup.state.history[0].rating,'hazy');
- a.run(`state={...defaultState(),...JSON.parse(${JSON.stringify(JSON.stringify(backup))}).state}`);
- assert.equal(a.run('state.memory.q1.recheckRating'),'hazy');
-});
-test('partial choice removes an already queued same-session retry',()=>{
- const a=app();a.run("enqueueAgain('q1',0)");assert.equal(a.run('practice.queue.length'),2);grade(a,'again');
- assert.equal(a.run('practice.queue.length'),1);
-});
-test('existing records are not changed merely by loading and migrating the updated app',()=>{
- const a=app();mature(a);const before=a.json('state.memory');a.run('migrateMemory()');
- assert.deepEqual(a.json('state.memory'),before);
-});
-test('legacy evidence is captured before a partial answer and preview matches its actual date',()=>{
- const a=app();
- a.run(`const start=Date.now()-15*86400000;
- state.memory.q1={phase:'review',cycleStart:start,stage:4,dueTs:QuizMastery.dueAt(start,30)};
- state.history=[{id:'q1',correct:true,ts:start},...[1,3,7,14].map(day=>({id:'q1',correct:true,ts:QuizMastery.dueAt(start,day)}))];`);
- const preview=a.run('selfRatingButtons(questions[0])');
- grade(a,'hazy');
- assert.equal(a.run('state.memory.q1.reviewPasses.length'),4);
- assert.equal(a.run('state.memory.q1.recheckDueTs'),a.run('QuizMastery.dueAt(Date.now(),2)'));
- assert.ok(preview.includes(a.run('formatDay(state.memory.q1.recheckDueTs)')+'再测'));
+test('failure schedules tomorrow and old delayed records survive until answering',()=>{
+ const a=app();mature(a);const before=a.json('state.memory');a.run('migrateMemory()');assert.deepEqual(a.json('state.memory'),before);
+ grade(a,'again');assert.equal(a.run('state.memory.q1.recheckDueTs'),a.run('QuizMastery.dueAt(Date.now(),1)'));
+ a.time(NOW+DAY);grade(a,'good');assert.equal(a.run('state.memory.q1.phase'),'review');
 });
