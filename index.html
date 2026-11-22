@@ -75,6 +75,7 @@ button{cursor:pointer}
 .analysis-block.memory{background:var(--amber-soft)}
 .qactions{display:flex;gap:9px;margin-top:15px}
 .qactions button{flex:1}
+.star-toggle{border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:12px;padding:10px 14px;margin:4px 0 12px;font:inherit;min-height:44px}.star-toggle[aria-pressed="true"]{background:var(--amber-soft);border-color:var(--amber)}
 .self-ratings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}
 .self-ratings button{min-height:76px;padding:12px 8px;border:1px solid var(--line);border-radius:13px;background:var(--surface);color:var(--text);font-size:16px;font-weight:750}
 .self-ratings small{display:block;margin-top:5px;font-size:14px;font-weight:400;line-height:1.4}
@@ -190,6 +191,7 @@ let practice = null;
 
 function defaultState(){
   return {
+    starredIds:[],
     answers:{},
     firstAnswers:{},
     stats:{total:0,correct:0},
@@ -233,6 +235,20 @@ function save(progressChanged=false){
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
   window.dispatchEvent(new Event('quiz-state-saved'));
   if(progressChanged)window.dispatchEvent(new Event('quiz-progress-recorded'));
+}
+function isStarred(id){
+  return Array.isArray(state.starredIds)&&state.starredIds.includes(id);
+}
+function toggleStar(id){
+  if(!questions.some(q=>q.id===id))return;
+  const ids=Array.isArray(state.starredIds)?state.starredIds:[];
+  state.starredIds=isStarred(id)?ids.filter(value=>value!==id):[...ids,id];
+  save();
+  if(view==='practice')renderPractice();
+}
+function starButton(q){
+  const active=isStarred(q.id);
+  return `<button type="button" class="star-toggle" aria-pressed="${active}" onclick='toggleStar(${JSON.stringify(q.id)})'>${active?'🌟 已标重点':'☆ 标为重点'}</button>`;
 }
 function toast(msg){
   toastEl.textContent=msg;toastEl.classList.add("show");
@@ -796,7 +812,7 @@ function chapterPicker(q){
   const buttons=practice.chapterIds.map((id,index)=>{
     const {key,label}=QuizMastery.describe(memoryFor(id),state.history,id);
     const reviewed=practice.reviewAttempts?.has(id);
-    return `<button type="button" ${reviewed?"disabled":""} class="chapter-number ${key}" onclick="selectChapterQuestion(${index})" aria-current="${id===q.id?'true':'false'}"><b>${index+1}</b><small>${reviewed?"已作答":label}</small></button>`;
+    return `<button type="button" ${reviewed?"disabled":""} class="chapter-number ${key}" onclick="selectChapterQuestion(${index})" aria-current="${id===q.id?'true':'false'}"><b>${index+1}${isStarred(id)?' 🌟':''}</b><small>${reviewed?"已作答":label}</small></button>`;
   }).join("");
   return `<section class="chapter-picker" aria-label="${title}"><strong>${title}</strong><div id="chapterGrid" class="chapter-grid">${buttons}</div></section>`;
 }
@@ -828,6 +844,7 @@ function renderPractice(){
       <div class="progress" style="margin-bottom:15px"><div style="width:${progress}%"></div></div>
       ${practice.mode==="chapter"?`<p class="chapter-note">${['review','mastered'].includes(memoryFor(q.id)?.phase)?'章节练习 · 答对按新规则安排复习':'首次或学习中 · 一次答对完成学习'}</p>`:""}
       ${!revealed?`<p id="questionCountdown" class="chapter-note">本题倒计时 03:00</p>`:''}
+      ${starButton(q)}
       <h2 class="qtitle math-content">${q.q}</h2>
       ${!revealed?`<aside id="questionReminder" class="card" hidden><p role="status">3 分钟到了。已经找到思路就继续做，卡住了可以查看答案。</p><div class="qactions"><button class="ghost" onclick="continueQuestion()">继续做</button><button class="primary" onclick="revealAnswer()">查看答案</button></div></aside>`:''}
       ${!revealed?'<button class="primary" style="width:100%" onclick="revealAnswer()">查看答案</button>':`<div class="answer-banner good"><b>参考答案</b><div class="math-content" style="margin-top:6px">${q.answer}</div></div><details class="analysis"><summary>展开详细解析</summary><div class="analysis-block why math-content">${q.why||'暂无解析'}</div></details>`}
@@ -993,6 +1010,6 @@ const autoBackup=window.GaoshuBackup?.start(now=>backupPayload(now,JSON.parse(lo
 init();
 </script>
 <script src="./ai-core.js"></script>
-<script src="./mastery-ui.js?v=schedule4"></script>
+<script src="./mastery-ui.js?v=stars1"></script>
 </body>
 </html>
